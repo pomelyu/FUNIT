@@ -47,7 +47,7 @@ def crop_bbox(image, bbox, output_size):
     rx2 = d - max(0, x + (w + d) // 2 - iw)
     ry2 = d - max(0, y + (h + d) // 2 - ih)
 
-    res[ry1:ry2, rx1:rx2] = image[dy1:dy2, dx1:dx2]
+    res[ry1:ry2, rx1:rx2, :3] = image[dy1:dy2, dx1:dx2, :3]
     res = transform.resize(res, (output_size, output_size))
     res = (res * 255).astype(np.uint8)
     return res
