@@ -2,6 +2,7 @@ from torch.utils.data import DataLoader
 import gin
 
 from .image_dataset import *
+from .image2image_dataset import *
 
 @gin.configurable()
 def create_dataloader(dataset, batch_size=8, shuffle=True, num_workers=0):
