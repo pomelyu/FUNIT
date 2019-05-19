@@ -31,7 +31,7 @@ class Logger():
         self._get_writer(phase).add_scalar(tag, value, step)
 
     def add_images(self, tag, images, step, phase="train"):
-        self._get_writer(phase).add_images(tag, images, step)
+        self._get_writer(phase).add_image(tag, images * 0.5 + 0.5, step)
 
     def add_text(self, tag, text, phase="train"):
         self._get_writer(phase).add_text(tag, text)
