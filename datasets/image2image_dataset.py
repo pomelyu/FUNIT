@@ -40,8 +40,8 @@ class Image2ImageDataset(Dataset):
             PadToSquare(),
             iaa.Resize({"height": image_size, "width": image_size}),
             BGRtoRGB(),
-            Normalize(mean=0, var=255),
-            ValueClip(0, 1),
+            Normalize(mean=127.5, var=127.5),
+            ValueClip(-1, 1),
             ToTensor(),
         ])
 
