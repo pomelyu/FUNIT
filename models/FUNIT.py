@@ -3,7 +3,7 @@ from torch import nn
 import torch.nn.functional as F
 import gin
 from models.BaseModel import BaseModel
-from models.components import ConvBlock, DeConvBlock, ResBlock, FlattenLayer
+from models.components import ConvBlock, DeConvBlock, ResBlock, FlattenLayer, GANLoss
 from models.helper import create_network, create_optimizer
 
 # pylint: disable=arguments-differ
@@ -28,6 +28,7 @@ class FUNITModel(BaseModel):
             self.netD = create_network(FUNIT_Dis, device)
 
             self.criterionIdt = nn.L1Loss(reduction="sum")
+            self.criterionGAN = GANLoss(use_lsgan=True).to(self.device)
             self.optimizerG = create_optimizer(self.netG.parameters(), lr=lr_G)
             self.optimizerD = create_optimizer(self.netD.parameters(), lr=lr_D)
             self.optimizers = ["optimizerG", "optimizerD"]
@@ -56,7 +57,9 @@ class FUNITModel(BaseModel):
         score_fake_AB = torch.gather(score_fake_AB, dim=1, index=index_B)
 
         # GAN HingeLoss
-        self.loss_G = -(score_fake_A.mean() + score_fake_AB.mean()) / 2
+        # self.loss_G = -(score_fake_A.mean() + score_fake_AB.mean()) / 2
+        self.loss_G = self.criterionGAN(score_fake_A, True) + self.criterionGAN(score_fake_AB, True)
+        self.loss_G = self.loss_G / 2
         self.loss_idt = self.criterionIdt(self.real_A, self.fake_A)
         self.loss_idt = (self.loss_idt / self.real_A.numel()) * self.lambda_idt
         loss = self.loss_G + self.loss_idt
@@ -67,6 +70,7 @@ class FUNITModel(BaseModel):
         fake_AB = self.netG(self.real_A, [self.real_B])
 
         score_real_A = self.netD(self.real_A)
+        score_real_B = self.netD(self.real_B)
         score_fake_A = self.netD(fake_A)
         score_fake_AB = self.netD(fake_AB)
 
@@ -74,13 +78,18 @@ class FUNITModel(BaseModel):
         index_A = self.label_A.expand(-1, 1, H, W) # B X 1 x H x W
         index_B = self.label_B.expand(-1, 1, H, W) # B x 1 x H x W
         score_real_A = torch.gather(score_real_A, dim=1, index=index_A)
+        score_real_B = torch.gather(score_real_B, dim=1, index=index_B)
         score_fake_A = torch.gather(score_fake_A, dim=1, index=index_A)
         score_fake_AB = torch.gather(score_fake_AB, dim=1, index=index_B)
 
-        self.loss_D = F.relu(1 - score_real_A).mean() + \
-                        F.relu(1 + score_fake_A).mean() + \
-                        F.relu(1 + score_fake_AB).mean()
-        self.loss_D = self.loss_D / 3
+        # self.loss_D = F.relu(1 - score_real_A).mean() + \
+        #                 F.relu(1 + score_fake_A).mean() + \
+        #                 F.relu(1 + score_fake_AB).mean()
+        self.loss_D = self.criterionGAN(score_real_A, True) + \
+                        self.criterionGAN(score_real_B, True) + \
+                        self.criterionGAN(score_fake_A, False) + \
+                        self.criterionGAN(score_fake_AB, False)
+        self.loss_D = self.loss_D / 4
         loss = self.loss_D
         loss.backward()
 
@@ -234,8 +243,8 @@ class FUNIT_Dis(nn.Sequential):
 
     def forward(self, x):
         x = super(FUNIT_Dis, self).forward(x)
-        x = F.leaky_relu(x)
-        x = torch.clamp(x, -1, 1)
+        # x = F.leaky_relu(x)
+        # x = torch.clamp(x, -1, 1)
         return x
 
 
