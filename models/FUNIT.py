@@ -10,17 +10,18 @@ from models.helper import create_network, create_optimizer
 
 @gin.configurable(blacklist=["isTrain", "device"])
 class FUNITModel(BaseModel):
-    def __init__(self, isTrain, device, lambda_idt=0.1, lr_G=0.0001, lr_D=0.0004):
+    def __init__(self, isTrain, device, lambda_idt=0.1, lambda_feat=1, lr_G=0.0001, lr_D=0.0004):
         super(FUNITModel, self).__init__(isTrain, device)
 
         self.models = ["netG"]
-        self.losses = ["loss_G", "loss_D", "loss_idt"]
+        self.losses = ["loss_G", "loss_D", "loss_idt", "loss_feat"]
         self.visuals = ["real_A", "real_B", "fake_A", "fake_AB"]
-        self.loss_G = self.loss_D = self.loss_idt = None
+        self.loss_G = self.loss_D = self.loss_idt = self.loss_feat = None
         self.real_A = self.real_B = self.fake_A = self.fake_AB = None
         self.label_A = self.label_B = None
 
         self.lambda_idt = lambda_idt
+        self.lambda_feat = lambda_feat
         self.netG = create_network(FUNIT, device)
 
         if self.isTrain:
@@ -47,40 +48,41 @@ class FUNITModel(BaseModel):
         self.fake_AB = self.netG(self.real_A, [self.real_B])
 
     def backward_G(self):
-        score_fake_A = self.netD(self.fake_A)
-        score_fake_AB = self.netD(self.fake_AB)
-        H, W = score_fake_A.shape[-2:]
-        index_A = self.label_A.expand(-1, 1, H, W) # B X D x H x W
-        index_B = self.label_B.expand(-1, 1, H, W) # B x D x H x W
-        score_fake_A = torch.gather(score_fake_A, dim=1, index=index_A)
-        score_fake_AB = torch.gather(score_fake_AB, dim=1, index=index_B)
+        score_real_B = self.netD.forward(self.real_B, with_feature=True)
+        score_fake_AB = self.netD.forward(self.fake_AB, with_feature=True)
+
+        # Feature match loss
+        self.loss_feat = 0
+        for feat_B, feat_AB in zip(score_real_B[:-1], score_fake_AB[:-1]):
+            self.loss_feat += self.criterionIdt(feat_B, feat_AB) / feat_B.numel()
+        self.loss_feat *= self.lambda_feat
 
         # GAN HingeLoss
-        self.loss_G = -(score_fake_A.mean() + score_fake_AB.mean()) / 2
+        H, W = score_fake_AB[-1].shape[-2:]
+        index_B = self.label_B.expand(-1, 1, H, W) # B x D x H x W
+        score_fake_AB = torch.gather(score_fake_AB[-1], dim=1, index=index_B)
+        self.loss_G = -score_fake_AB.mean()
+
         self.loss_idt = self.criterionIdt(self.real_A, self.fake_A)
         self.loss_idt = (self.loss_idt / self.real_A.numel()) * self.lambda_idt
-        loss = self.loss_G + self.loss_idt
+
+        loss = self.loss_G + self.loss_idt + self.loss_feat
         loss.backward()
 
     def backward_D(self):
-        fake_A = self.netG(self.real_A, [self.real_A])
         fake_AB = self.netG(self.real_A, [self.real_B])
 
         score_real_A = self.netD(self.real_A)
-        score_fake_A = self.netD(fake_A)
         score_fake_AB = self.netD(fake_AB)
 
-        H, W = score_fake_A.shape[-2:]
+        H, W = score_real_A.shape[-2:]
         index_A = self.label_A.expand(-1, 1, H, W) # B X 1 x H x W
         index_B = self.label_B.expand(-1, 1, H, W) # B x 1 x H x W
         score_real_A = torch.gather(score_real_A, dim=1, index=index_A)
-        score_fake_A = torch.gather(score_fake_A, dim=1, index=index_A)
         score_fake_AB = torch.gather(score_fake_AB, dim=1, index=index_B)
 
-        self.loss_D = F.relu(1 - score_real_A).mean() + \
-                        F.relu(1 + score_fake_A).mean() + \
-                        F.relu(1 + score_fake_AB).mean()
-        self.loss_D = self.loss_D / 3
+        self.loss_D = F.relu(1 - score_real_A).mean() + F.relu(1 + score_fake_AB).mean()
+        self.loss_D = self.loss_D / 2
         loss = self.loss_D
         loss.backward()
 
@@ -172,10 +174,8 @@ class AdaInDecoder(nn.Module):
 
         self.latent_encoder = nn.Sequential(
             nn.Linear(latent_size, 256),
-            nn.BatchNorm1d(256),
             nn.ReLU(True),
             nn.Linear(256, 256),
-            nn.BatchNorm1d(256),
             nn.ReLU(True),
             nn.Linear(256, nc_adain_params),
         )
@@ -211,32 +211,59 @@ class FUNIT_Dis(nn.Sequential):
         super(FUNIT_Dis, self).__init__()
         # (3, 128, 128)
         self.add_module("conv_in", nn.Conv2d(3, 64, 3, 1, 1))
-        self.add_module("resblk1", FUNITResBlock(64, 128))
-        self.add_module("resblk2", FUNITResBlock(128, 128))
-        self.add_module("pool1", nn.AvgPool2d(2, 2))
+        # (64, 128, 128)
+        self.add_module("block1", nn.Sequential(
+            FUNITResBlock(64, 128),
+            FUNITResBlock(128, 128),
+            nn.AvgPool2d(2, 2),
+        ))
         # (128, 64, 64)
-        self.add_module("resblk3", FUNITResBlock(128, 256))
-        self.add_module("resblk4", FUNITResBlock(256, 256))
-        self.add_module("pool2", nn.AvgPool2d(2, 2))
+        self.add_module("block2", nn.Sequential(
+            FUNITResBlock(128, 256),
+            FUNITResBlock(256, 256),
+            nn.AvgPool2d(2, 2),
+        ))
         # (256, 32, 32)
-        self.add_module("resblk5", FUNITResBlock(256, 512))
-        self.add_module("resblk6", FUNITResBlock(512, 512))
-        self.add_module("pool3", nn.AvgPool2d(2, 2))
+        self.add_module("block3", nn.Sequential(
+            FUNITResBlock(256, 512),
+            FUNITResBlock(512, 512),
+            nn.AvgPool2d(2, 2),
+        ))
         # (512, 16, 16)
-        self.add_module("resblk7", FUNITResBlock(512, 1024))
-        self.add_module("resblk8", FUNITResBlock(1024, 1024))
-        self.add_module("pool4", nn.AvgPool2d(2, 2))
+        self.add_module("block4", nn.Sequential(
+            FUNITResBlock(512, 1024),
+            FUNITResBlock(1024, 1024),
+            nn.AvgPool2d(2, 2),
+        ))
         # (1024, 8, 8)
-        self.add_module("resblk9", FUNITResBlock(1024, 1024))
-        self.add_module("resblk10", FUNITResBlock(1024, 1024))
-        self.add_module("conv_out", nn.Conv2d(1024, num_class, 1, 1, 0))
-        # self.add_module("actv_out", nn.Tanh())
+        self.add_module("block5", nn.Sequential(
+            FUNITResBlock(1024, 1024),
+            FUNITResBlock(1024, 1024),
+        ))
+        self.add_module("conv_out", nn.Sequential(
+            nn.Conv2d(1024, num_class, 1, 1, 0),
+            nn.Tanh(),
+        ))
 
-    def forward(self, x):
-        x = super(FUNIT_Dis, self).forward(x)
-        x = F.leaky_relu(x)
-        x = torch.clamp(x, -1, 1)
-        return x
+    def forward(self, x, with_feature=False):
+        if not with_feature:
+            return super(FUNIT_Dis, self).forward(x)
+
+        outs = []
+        x = self.conv_in(x)
+        x = self.block1(x)
+        outs.append(x)
+        x = self.block2(x)
+        outs.append(x)
+        x = self.block3(x)
+        outs.append(x)
+        x = self.block4(x)
+        outs.append(x)
+        x = self.block5(x)
+        outs.append(x)
+        x = self.conv_out(x)
+        outs.append(x)
+        return outs
 
 
 class FUNITResBlock(nn.Module):
