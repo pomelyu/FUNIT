@@ -50,10 +50,18 @@ class BaseModel(metaclass=ABCMeta):
     def check_attributes(self):
         for loss_name in self.losses:
             assert hasattr(self, loss_name)
+
         for model_name in self.models:
             assert hasattr(self, model_name)
+            net = getattr(self, model_name)
+            num_params = 0
+            for param in net.parameters():
+                num_params += param.numel()
+            print("[Network] {} # of parameters: {:.3f} M".format(model_name, num_params / 1e6))
+
         for visual_name in self.visuals:
             assert hasattr(self, visual_name)
+
         for optimizer_name in self.optimizers:
             assert hasattr(self, optimizer_name)
 
