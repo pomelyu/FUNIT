@@ -225,41 +225,41 @@ class AdaInDecoder(nn.Module):
 
 @gin.configurable()
 class FUNIT_Dis(nn.Sequential):
-    def __init__(self, num_class=444):
+    def __init__(self, num_class=444, ndf=64):
         super(FUNIT_Dis, self).__init__()
         # (3, 128, 128)
-        self.add_module("conv_in", nn.Conv2d(3, 64, 3, 1, 1))
+        self.add_module("conv_in", nn.Conv2d(3, ndf*1, 3, 1, 1))
         # (64, 128, 128)
         self.add_module("block1", nn.Sequential(
-            FUNITResBlock(64, 128),
-            FUNITResBlock(128, 128),
+            FUNITResBlock(ndf*1, ndf*2),
+            FUNITResBlock(ndf*2, ndf*2),
             nn.AvgPool2d(2, 2),
         ))
         # (128, 64, 64)
         self.add_module("block2", nn.Sequential(
-            FUNITResBlock(128, 256),
-            FUNITResBlock(256, 256),
+            FUNITResBlock(ndf*2, ndf*4),
+            FUNITResBlock(ndf*4, ndf*4),
             nn.AvgPool2d(2, 2),
         ))
         # (256, 32, 32)
         self.add_module("block3", nn.Sequential(
-            FUNITResBlock(256, 512),
-            FUNITResBlock(512, 512),
+            FUNITResBlock(ndf*4, ndf*8),
+            FUNITResBlock(ndf*8, ndf*8),
             nn.AvgPool2d(2, 2),
         ))
         # (512, 16, 16)
         self.add_module("block4", nn.Sequential(
-            FUNITResBlock(512, 1024),
-            FUNITResBlock(1024, 1024),
+            FUNITResBlock(ndf*8, ndf*16),
+            FUNITResBlock(ndf*16, ndf*16),
             nn.AvgPool2d(2, 2),
         ))
         # (1024, 8, 8)
         self.add_module("block5", nn.Sequential(
-            FUNITResBlock(1024, 1024),
-            FUNITResBlock(1024, 1024),
+            FUNITResBlock(ndf*16, ndf*16),
+            FUNITResBlock(ndf*16, ndf*16),
         ))
         self.add_module("conv_out", nn.Sequential(
-            nn.Conv2d(1024, num_class, 1, 1, 0),
+            nn.Conv2d(ndf*16, num_class, 1, 1, 0),
             nn.Tanh(),
         ))
 
