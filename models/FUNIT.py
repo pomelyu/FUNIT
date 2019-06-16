@@ -10,7 +10,7 @@ from models.helper import create_network, create_optimizer
 
 @gin.configurable(blacklist=["isTrain", "device"])
 class FUNITModel(BaseModel):
-    def __init__(self, isTrain, device, lambda_idt=0.1, lambda_feat=1, lambda_gp=10, lr_G=0.0001, lr_D=0.0004):
+    def __init__(self, isTrain, device, lambda_idt=0.1, lambda_feat=1, lambda_gp=10, lr_G=0.0001, lr_D=0.0004, clip_grad=0):
         super(FUNITModel, self).__init__(isTrain, device)
 
         self.models = ["netG"]
@@ -23,6 +23,7 @@ class FUNITModel(BaseModel):
         self.lambda_idt = lambda_idt
         self.lambda_feat = lambda_feat
         self.lambda_gp = lambda_gp
+        self.clip_grad = clip_grad
         self.netG = create_network(FUNIT, device)
 
         if self.isTrain:
@@ -105,13 +106,21 @@ class FUNITModel(BaseModel):
         loss.backward()
 
     def optimize_parameters(self):
+        clip_grad = self.clip_grad
+
         self.forward()
         self.optimizerG.zero_grad()
         self.backward_G()
+        if clip_grad > 0:
+            torch.nn.utils.clip_grad_norm_(self.netG.parameters(), clip_grad)
+            torch.nn.utils.clip_grad_norm_(self.netD.parameters(), clip_grad)
         self.optimizerG.step()
 
         self.optimizerD.zero_grad()
         self.backward_D()
+        if clip_grad > 0:
+            torch.nn.utils.clip_grad_norm_(self.netG.parameters(), clip_grad)
+            torch.nn.utils.clip_grad_norm_(self.netD.parameters(), clip_grad)
         self.optimizerD.step()
 
     def get_test_outputs(self):
