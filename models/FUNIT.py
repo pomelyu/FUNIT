@@ -33,6 +33,7 @@ class FUNITModel(BaseModel):
             self.optimizerG = create_optimizer(self.netG.parameters(), lr=lr_G)
             self.optimizerD = create_optimizer(self.netD.parameters(), lr=lr_D)
             self.optimizers = ["optimizerG", "optimizerD"]
+            self.initialize_scheduler()
 
         self.check_attributes()
 
