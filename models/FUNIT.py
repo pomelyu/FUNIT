@@ -10,18 +10,19 @@ from models.helper import create_network, create_optimizer
 
 @gin.configurable(blacklist=["isTrain", "device"])
 class FUNITModel(BaseModel):
-    def __init__(self, isTrain, device, lambda_idt=0.1, lambda_feat=1, lr_G=0.0001, lr_D=0.0004):
+    def __init__(self, isTrain, device, lambda_idt=0.1, lambda_feat=1, lambda_gp=10, lr_G=0.0001, lr_D=0.0004):
         super(FUNITModel, self).__init__(isTrain, device)
 
         self.models = ["netG"]
-        self.losses = ["loss_G", "loss_D", "loss_idt", "loss_feat"]
+        self.losses = ["loss_G", "loss_D", "loss_idt", "loss_feat", "loss_gp"]
         self.visuals = ["real_A", "real_B", "fake_A", "fake_AB"]
-        self.loss_G = self.loss_D = self.loss_idt = self.loss_feat = None
+        self.loss_G = self.loss_D = self.loss_idt = self.loss_feat = self.loss_gp = None
         self.real_A = self.real_B = self.fake_A = self.fake_AB = None
         self.label_A = self.label_B = None
 
         self.lambda_idt = lambda_idt
         self.lambda_feat = lambda_feat
+        self.lambda_gp = lambda_gp
         self.netG = create_network(FUNIT, device)
 
         if self.isTrain:
@@ -72,18 +73,34 @@ class FUNITModel(BaseModel):
     def backward_D(self):
         fake_AB = self.netG(self.real_A, [self.real_B])
 
+        if self.lambda_gp != 0:
+            self.real_A.requires_grad = True
+
         score_real_A = self.netD(self.real_A)
         score_fake_AB = self.netD(fake_AB)
 
-        H, W = score_real_A.shape[-2:]
+        B, _, H, W = score_real_A.shape
         index_A = self.label_A.expand(-1, 1, H, W) # B X 1 x H x W
         index_B = self.label_B.expand(-1, 1, H, W) # B x 1 x H x W
         score_real_A = torch.gather(score_real_A, dim=1, index=index_A)
         score_fake_AB = torch.gather(score_fake_AB, dim=1, index=index_B)
 
+        # Gradient Penality on real data
+        if self.lambda_gp == 0:
+            self.loss_gp = torch.zeros(1).to(self.device)
+        else:
+            grad_outputs = torch.ones_like(score_real_A, device=self.device)
+            grad_outputs.requires_grad = False
+            grad = torch.autograd.grad(outputs=score_real_A, inputs=self.real_A, \
+                                        grad_outputs=grad_outputs, only_inputs=True, \
+                                        create_graph=True, retain_graph=True)[0]
+            grad = grad.view(B, -1)
+            self.loss_gp = (grad ** 2).sum(1).mean()
+            self.loss_gp *= self.lambda_gp
+
         self.loss_D = F.relu(1 - score_real_A).mean() + F.relu(1 + score_fake_AB).mean()
         self.loss_D = self.loss_D / 2
-        loss = self.loss_D
+        loss = self.loss_D + self.loss_gp
         loss.backward()
 
     def optimize_parameters(self):
