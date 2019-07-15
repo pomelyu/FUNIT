@@ -267,7 +267,7 @@ class FUNIT_Dis(nn.Sequential):
         ))
         self.add_module("conv_out", nn.Sequential(
             nn.Conv2d(ndf*16, num_class, 1, 1, 0),
-            nn.Tanh(),
+            #nn.Tanh(),
         ))
 
     def forward(self, x, with_feature=False):
