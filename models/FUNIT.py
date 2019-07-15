@@ -287,16 +287,19 @@ class FUNIT_Dis(nn.Sequential):
 class FUNITResBlock(nn.Module):
     def __init__(self, input_nc, output_nc):
         super(FUNITResBlock, self).__init__()
+        self.norm1 = nn.InstanceNorm2d(input_nc)
         self.actv1 = nn.LeakyReLU(True)
         self.conv1 = nn.Conv2d(input_nc, output_nc, 3, 1, 1)
+        self.norm2 = nn.InstanceNorm2d(output_nc)
         self.actv2 = nn.LeakyReLU(True)
         self.conv2 = nn.Conv2d(output_nc, output_nc, 3, 1, 1)
         if input_nc != output_nc:
             self.convs = nn.Conv2d(input_nc, output_nc, 1, 1)
 
     def forward(self, x):
+        x = self.norm1(x)
         x = self.actv1(x)
         s = self.convs(x) if hasattr(self, "convs") else x
         x = self.conv1(x)
-        x = self.conv2(self.actv2(x))
+        x = self.conv2(self.actv2(self.norm2(x)))
         return x + s
