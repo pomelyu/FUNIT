@@ -129,7 +129,7 @@ class FUNITModel(BaseModel):
 
 @gin.configurable()
 class FUNIT(nn.Module):
-    def __init__(self, image_size=128):
+    def __init__(self, dim_class=64):
         super(FUNIT, self).__init__()
         self.ContentEncoder = nn.Sequential(
             # (3, 128, 128)
@@ -158,13 +158,13 @@ class FUNIT(nn.Module):
             # (512, 16, 16)
             ConvBlock(512, 1024, 3, 2, 1, norm="none", activation="relu"),
             # (1024, 8, 8 )
-            nn.AvgPool2d(2, 2, 0),
-            # (1024, 4, 4)
+            nn.AdaptiveAvgPool2d(1),
+            # (1024, 1, 1)
+            ConvBlock(1024, dim_class, 1, 1, 0, norm="none", activation="tanh"),
+            # 64
             FlattenLayer(),
-            # 16384
         )
-        latent_size = 1024 * pow(image_size / pow(2, 5), 2)
-        self.AdaInDecoder = AdaInDecoder(512, int(latent_size))
+        self.AdaInDecoder = AdaInDecoder(512, dim_class)
 
     def forward(self, x, ys):
         x_content = self.ContentEncoder(x)
