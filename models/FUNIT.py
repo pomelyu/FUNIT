@@ -51,19 +51,17 @@ class FUNITModel(BaseModel):
         self.fake_AB = self.netG(self.real_A, [self.real_B])
 
     def backward_G(self):
-        score_real_B = self.netD.forward(self.real_B, with_feature=True)
-        score_fake_AB = self.netD.forward(self.fake_AB, with_feature=True)
+        _, feat_real_B = self.netD.forward(self.real_B, with_feature=True)
+        score_fake_AB, feat_fake_AB = self.netD.forward(self.fake_AB, with_feature=True)
 
         # Feature match loss
-        self.loss_feat = 0
-        for feat_B, feat_AB in zip(score_real_B[:-1], score_fake_AB[:-1]):
-            self.loss_feat += self.criterionIdt(feat_B, feat_AB) / feat_B.numel()
+        self.loss_feat = self.criterionIdt(feat_real_B, feat_fake_AB) / feat_real_B.numel()
         self.loss_feat *= self.lambda_feat
 
         # GAN HingeLoss
-        H, W = score_fake_AB[-1].shape[-2:]
+        H, W = score_fake_AB.shape[-2:]
         index_B = self.label_B.expand(-1, 1, H, W) # B x D x H x W
-        score_fake_AB = torch.gather(score_fake_AB[-1], dim=1, index=index_B)
+        score_fake_AB = torch.gather(score_fake_AB, dim=1, index=index_B)
         self.loss_G = -score_fake_AB.mean()
 
         self.loss_idt = self.criterionIdt(self.real_A, self.fake_A)
@@ -273,24 +271,17 @@ class FUNIT_Dis(nn.Sequential):
         ))
 
     def forward(self, x, with_feature=False):
-        if not with_feature:
-            return super(FUNIT_Dis, self).forward(x)
-
-        outs = []
         x = self.conv_in(x)
         x = self.block1(x)
-        outs.append(x)
         x = self.block2(x)
-        outs.append(x)
         x = self.block3(x)
-        outs.append(x)
         x = self.block4(x)
-        outs.append(x)
-        x = self.block5(x)
-        outs.append(x)
-        x = self.conv_out(x)
-        outs.append(x)
-        return outs
+        feature = self.block5(x)
+        res = self.conv_out(feature)
+
+        if with_feature:
+            return res, feature
+        return res
 
 
 class FUNITResBlock(nn.Module):
