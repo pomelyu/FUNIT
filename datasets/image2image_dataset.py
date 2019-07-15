@@ -47,7 +47,7 @@ class Image2ImageDataset(Dataset):
 
     def __getitem__(self, index):
         class_id = self.class_indexes[index]
-        random_offset = np.random.randint(self.class_offset[class_id], self.__len__() + self.class_offset[class_id - 1])
+        random_offset = np.random.randint(self.class_offset[class_id + 1], self.__len__() + self.class_offset[class_id])
         target_idx = random_offset % self.__len__()
         target_class = self.class_indexes[target_idx]
 
