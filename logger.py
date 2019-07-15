@@ -1,6 +1,7 @@
 from pathlib import Path
 import time
 import torch
+import torchvision.utils as vutils
 from tensorboardX import SummaryWriter
 
 class Logger():
@@ -31,7 +32,8 @@ class Logger():
         self._get_writer(phase).add_scalar(tag, value, step)
 
     def add_images(self, tag, images, step, phase="train"):
-        self._get_writer(phase).add_image(tag, images * 0.5 + 0.5, step)
+        grid = vutils.make_grid(images.detach().cpu(), normalize=True, scale_each=True)
+        self._get_writer(phase).add_image(tag, grid, step)
 
     def add_text(self, tag, text, phase="train"):
         self._get_writer(phase).add_text(tag, text)
