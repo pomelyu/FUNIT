@@ -32,7 +32,7 @@ class Logger():
         self._get_writer(phase).add_scalar(tag, value, step)
 
     def add_images(self, tag, images, step, phase="train"):
-        grid = vutils.make_grid(images.detach().cpu(), normalize=True, scale_each=True)
+        grid = vutils.make_grid(images.detach().cpu(), normalize=True, scale_each=True, padding=0)
         self._get_writer(phase).add_image(tag, grid, step)
 
     def add_text(self, tag, text, phase="train"):
