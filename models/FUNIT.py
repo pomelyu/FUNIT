@@ -1,3 +1,4 @@
+import math
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -15,11 +16,13 @@ class FUNITModel(BaseModel):
 
         self.models = ["netG"]
         self.losses = ["loss_G", "loss_D", "loss_idt", "loss_feat", "loss_gp"]
-        self.visuals = ["real_A", "real_B", "fake_A", "fake_AB"]
+        self.visuals = ["real_A", "real_B", "real_A_pg", "fake_A", "fake_AB"]
         self.loss_G = self.loss_D = self.loss_idt = self.loss_feat = self.loss_gp = None
-        self.real_A = self.real_B = self.fake_A = self.fake_AB = None
+        self.real_A = self.real_B = self.fake_A = self.fake_AB = self.real_A_pg = self.real_B_pg = None
         self.label_A = self.label_B = None
 
+        # 0 -> 16, 1 -> 32, 2 -> 64, 3 -> 128
+        self.pg_index = 0
         self.lambda_idt = lambda_idt
         self.lambda_feat = lambda_feat
         self.lambda_gp = lambda_gp
@@ -42,6 +45,19 @@ class FUNITModel(BaseModel):
         self.real_A = input_data["source"].to(self.device)
         self.real_B = input_data["target"].to(self.device)
 
+        if self.pg_index <= 0:
+            self.real_A_pg = F.interpolate(self.real_A, scale_factor=0.125)
+            self.real_B_pg = F.interpolate(self.real_B, scale_factor=0.125)
+        elif self.pg_index <= 1:
+            self.real_A_pg = F.interpolate(self.real_A, scale_factor=0.25)
+            self.real_B_pg = F.interpolate(self.real_B, scale_factor=0.25)
+        elif self.pg_index <= 2:
+            self.real_A_pg = F.interpolate(self.real_A, scale_factor=0.5)
+            self.real_B_pg = F.interpolate(self.real_B, scale_factor=0.5)
+        else:
+            self.real_A_pg = self.real_A
+            self.real_B_pg = self.real_B
+
         B = self.real_A.shape[0]
         self.label_A = input_data["source_label"].long().view(B, 1, 1, 1).to(self.device)
         self.label_B = input_data["target_label"].long().view(B, 1, 1, 1).to(self.device)
@@ -51,7 +67,7 @@ class FUNITModel(BaseModel):
         self.fake_AB = self.netG(self.real_A, [self.real_B])
 
     def backward_G(self):
-        _, feat_real_B = self.netD.forward(self.real_B, with_feature=True)
+        _, feat_real_B = self.netD.forward(self.real_B_pg, with_feature=True)
         score_fake_AB, feat_fake_AB = self.netD.forward(self.fake_AB, with_feature=True)
 
         # Feature match loss
@@ -64,8 +80,8 @@ class FUNITModel(BaseModel):
         score_fake_AB = torch.gather(score_fake_AB, dim=1, index=index_B)
         self.loss_G = -score_fake_AB.mean()
 
-        self.loss_idt = self.criterionIdt(self.real_A, self.fake_A)
-        self.loss_idt = (self.loss_idt / self.real_A.numel()) * self.lambda_idt
+        self.loss_idt = self.criterionIdt(self.real_A_pg, self.fake_A)
+        self.loss_idt = (self.loss_idt / self.real_A_pg.numel()) * self.lambda_idt
 
         loss = self.loss_G + self.loss_idt + self.loss_feat
         loss.backward()
@@ -74,9 +90,9 @@ class FUNITModel(BaseModel):
         fake_AB = self.netG(self.real_A, [self.real_B])
 
         if self.lambda_gp != 0:
-            self.real_A.requires_grad = True
+            self.real_A_pg.requires_grad = True
 
-        score_real_A = self.netD(self.real_A)
+        score_real_A = self.netD(self.real_A_pg)
         score_fake_AB = self.netD(fake_AB)
 
         B, _, H, W = score_real_A.shape
@@ -91,7 +107,7 @@ class FUNITModel(BaseModel):
         else:
             grad_outputs = torch.ones_like(score_real_A, device=self.device)
             grad_outputs.requires_grad = False
-            grad = torch.autograd.grad(outputs=score_real_A, inputs=self.real_A, \
+            grad = torch.autograd.grad(outputs=score_real_A, inputs=self.real_A_pg, \
                                         grad_outputs=grad_outputs, only_inputs=True, \
                                         create_graph=True, retain_graph=True)[0]
             grad = grad.view(B, -1)
@@ -126,6 +142,12 @@ class FUNITModel(BaseModel):
 
     def evaluate(self):
         pass
+
+    def set_pg_index(self, pg_index):
+        self.pg_index = pg_index
+        self.netG.set_pg_index(self.pg_index)
+        self.netD.set_pg_index(self.pg_index)
+
 
 @gin.configurable()
 class FUNIT(nn.Module):
@@ -176,24 +198,35 @@ class FUNIT(nn.Module):
         res = self.AdaInDecoder(x_content, class_code)
         return res
 
+    def set_pg_index(self, pg_index):
+        self.AdaInDecoder.set_pg_index(pg_index)
+
 
 # Ref from https://github.com/NVlabs/MUNIT/blob/master/networks.py
 class AdaInDecoder(nn.Module):
     def __init__(self, input_nc, latent_size):
         super(AdaInDecoder, self).__init__()
+        # 0 -> 16, 1 -> 32, 2 -> 64, 3 -> 128
+        self.pg_index = 0
         self.adain_generator = nn.Sequential(
             # (512, 16, 16)
             ResBlock(input_nc, norm="adaIn"),
             ResBlock(input_nc, norm="adaIn"),
             # (512, 16, 16)
-            DeConvBlock(input_nc, 256, norm="instance", activation="relu"),
-            # (256, 32, 32)
-            DeConvBlock(256, 128, norm="instance", activation="relu"),
-            # (128, 64, 64)
-            DeConvBlock(128, 64, norm="instance", activation="relu"),
-            # (64, 128, 128)
-            ConvBlock(64, 3, 3, 1, 1, norm="instance", activation="tanh")
         )
+
+        self.deConv32 = DeConvBlock(input_nc, 256, norm="instance", activation="relu")
+        # (256, 32, 32)
+        self.deConv64 = DeConvBlock(256, 128, norm="instance", activation="relu")
+        # (128, 64, 64)
+        self.deConv128 = DeConvBlock(128, 64, norm="instance", activation="relu")
+        # (64, 128, 128)
+
+        self.toRGB16 = ConvBlock(512, 3, 3, 1, 1, norm="instance", activation="tanh")
+        self.toRGB32 = ConvBlock(256, 3, 3, 1, 1, norm="instance", activation="tanh")
+        self.toRGB64 = ConvBlock(128, 3, 3, 1, 1, norm="instance", activation="tanh")
+        self.toRGB128 = ConvBlock(64, 3, 3, 1, 1, norm="instance", activation="tanh")
+        self.toRGBs = [self.toRGB16, self.toRGB32, self.toRGB64, self.toRGB128]
 
         nc_adain_params = self.get_num_adain_params(self.adain_generator)
 
@@ -209,7 +242,34 @@ class AdaInDecoder(nn.Module):
         adain_params = self.latent_encoder(class_code)
         self.assign_adain_params(adain_params, self.adain_generator)
         x = self.adain_generator(x)
-        return x
+
+        # Progressive growing
+        pg_index = math.ceil(self.pg_index)
+        reminder = self.pg_index - math.floor(self.pg_index)
+
+        shortcut = None
+        if self.pg_index > 0:
+            shortcut = x
+            x = self.deConv32(x)
+
+        if self.pg_index > 1:
+            shortcut = x
+            x = self.deConv64(x)
+
+        if self.pg_index > 2:
+            shortcut = x
+            x = self.deConv128(x)
+
+        RGB = self.toRGBs[pg_index](x)
+        if reminder > 0:
+            shortcutRGB = self.toRGBs[pg_index - 1](shortcut)
+            shortcutRGB = F.interpolate(shortcutRGB, scale_factor=2)
+            RGB = (1 - reminder) * shortcutRGB + RGB
+
+        return RGB
+
+    def set_pg_index(self, pg_index):
+        self.pg_index = pg_index
 
     def assign_adain_params(self, adain_params, model):
         # assign the adain_params to the AdaIN layers in model
@@ -231,57 +291,82 @@ class AdaInDecoder(nn.Module):
         return num_adain_params
 
 @gin.configurable()
-class FUNIT_Dis(nn.Sequential):
+class FUNIT_Dis(nn.Module):
     def __init__(self, num_class=444, ndf=64):
         super(FUNIT_Dis, self).__init__()
-        # (3, 128, 128)
-        self.add_module("conv_in", nn.Conv2d(3, ndf*1, 3, 1, 1))
-        # (64, 128, 128)
-        self.add_module("block1", nn.Sequential(
+        # 0 -> 16, 1 -> 32, 2 -> 64, 3 -> 128
+        self.pg_index = 0
+        self.fromRGB128 = nn.Conv2d(3, ndf*1, 3, 1, 1)
+        self.fromRGB64 = nn.Conv2d(3, ndf*2, 3, 1, 1)
+        self.fromRGB32 = nn.Conv2d(3, ndf*4, 3, 1, 1)
+        self.fromRGB16 = nn.Conv2d(3, ndf*8, 3, 1, 1)
+        self.fromRGBs = [self.fromRGB16, self.fromRGB32, self.fromRGB64, self.fromRGB128]
+
+        self.conv128 = nn.Sequential(
             FUNITResBlock(ndf*1, ndf*2),
             FUNITResBlock(ndf*2, ndf*2),
             nn.AvgPool2d(2, 2),
-        ))
+        )
         # (128, 64, 64)
-        self.add_module("block2", nn.Sequential(
+        self.conv64 = nn.Sequential(
             FUNITResBlock(ndf*2, ndf*4),
             FUNITResBlock(ndf*4, ndf*4),
             nn.AvgPool2d(2, 2),
-        ))
+        )
         # (256, 32, 32)
-        self.add_module("block3", nn.Sequential(
+        self.conv32 = nn.Sequential(
             FUNITResBlock(ndf*4, ndf*8),
             FUNITResBlock(ndf*8, ndf*8),
             nn.AvgPool2d(2, 2),
-        ))
+        )
         # (512, 16, 16)
-        self.add_module("block4", nn.Sequential(
+        self.conv16 = nn.Sequential(
             FUNITResBlock(ndf*8, ndf*16),
             FUNITResBlock(ndf*16, ndf*16),
             nn.AvgPool2d(2, 2),
-        ))
+        )
+        self.convs = [self.conv16, self.conv32, self.conv64, self.conv128]
         # (1024, 8, 8)
-        self.add_module("block5", nn.Sequential(
+        self.conv8 = nn.Sequential(
             FUNITResBlock(ndf*16, ndf*16),
             FUNITResBlock(ndf*16, ndf*16),
-        ))
-        self.add_module("conv_out", nn.Sequential(
-            nn.Conv2d(ndf*16, num_class, 1, 1, 0),
-            #nn.Tanh(),
-        ))
+        )
+        self.conv_out = nn.Conv2d(ndf*16, num_class, 1, 1, 0)
 
     def forward(self, x, with_feature=False):
-        x = self.conv_in(x)
-        x = self.block1(x)
-        x = self.block2(x)
-        x = self.block3(x)
-        x = self.block4(x)
-        feature = self.block5(x)
+        # Progressive shrinking
+        pg_index = math.ceil(self.pg_index)
+        reminder = self.pg_index - math.floor(self.pg_index)
+
+        shortcut = x
+        x = self.fromRGBs[pg_index](x)
+        if reminder > 0:
+            x = self.convs[pg_index](x)
+            shortcut = F.interpolate(shortcut, scale_factor=0.5)
+            shortcut = self.fromRGBs[pg_index - 1](shortcut)
+            x = (1 - reminder) * shortcut + x
+
+        if self.pg_index >= 3:
+            x = self.conv128(x)
+
+        if self.pg_index >= 2:
+            x = self.conv64(x)
+
+        if self.pg_index >= 1:
+            x = self.conv32(x)
+
+        if self.pg_index >= 0:
+            x = self.conv16(x)
+
+        feature = self.conv8(x)
         res = self.conv_out(feature)
 
         if with_feature:
             return res, feature
         return res
+
+    def set_pg_index(self, pg_index):
+        self.pg_index = pg_index
 
 
 class FUNITResBlock(nn.Module):

@@ -15,7 +15,7 @@ from logger import Logger
 @gin.configurable
 def train(
         checkpoints_dir=None, exp_name=None, model=None, train_dataset=None, valid_dataset=None, \
-        use_gpu=True, epoch_total=10, epoch_start=1, load_epoch=None, \
+        use_gpu=True, epoch_stable=10, epoch_trans=10, epoch_start=1, load_epoch=None, \
         print_steps=500, display_steps=2000, \
         save_model_epoch=1, save_latest_steps=50000 \
     ):
@@ -41,10 +41,20 @@ def train(
     if load_epoch:
         model.load_networks(experiment_dir, load_epoch)
 
+    epoch_total = epoch_stable * 4 + epoch_trans * 3
+    pg_indexes = [0] * epoch_stable + [(i+1)/epoch_trans for i in range(epoch_trans)] + \
+                    [1] * epoch_stable + [1 + (i+1)/epoch_trans for i in range(epoch_trans)] + \
+                    [2] * epoch_stable + [2 + (i+1)/epoch_trans for i in range(epoch_trans)] + \
+                    [3] * epoch_stable
+
     steps = (epoch_start - 1) * len(train_dataloader)
     for epoch in range(epoch_start, epoch_total+1):
         # Training
         train_losses = {k: [] for k in model.losses}
+
+        pg_index = pg_indexes[epoch - 1]
+        model.set_pg_index(pg_index)
+        print("progressive index: {:.1f}".format(pg_index))
         for data in tqdm(train_dataloader, total=len(train_dataloader), ascii=True):
             model.set_input(data)
             model.forward()
