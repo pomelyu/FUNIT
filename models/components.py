@@ -92,6 +92,8 @@ def get_activation(activation="relu"):
         activation_layer = nn.SELU(inplace=True)
     elif activation == 'tanh':
         activation_layer = nn.Tanh()
+    elif activation == 'hardtanh':
+        activation_layer = nn.Hardtanh(inplace=True)
     elif activation == 'none':
         activation_layer = None
     else:

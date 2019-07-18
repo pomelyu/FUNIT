@@ -222,10 +222,10 @@ class AdaInDecoder(nn.Module):
         self.deConv128 = DeConvBlock(128, 64, norm="instance", activation="relu")
         # (64, 128, 128)
 
-        self.toRGB16 = ConvBlock(512, 3, 3, 1, 1, norm="instance", activation="tanh")
-        self.toRGB32 = ConvBlock(256, 3, 3, 1, 1, norm="instance", activation="tanh")
-        self.toRGB64 = ConvBlock(128, 3, 3, 1, 1, norm="instance", activation="tanh")
-        self.toRGB128 = ConvBlock(64, 3, 3, 1, 1, norm="instance", activation="tanh")
+        self.toRGB16 = ConvBlock(512, 3, 3, 1, 1, norm="none", activation="hardtanh")
+        self.toRGB32 = ConvBlock(256, 3, 3, 1, 1, norm="none", activation="hardtanh")
+        self.toRGB64 = ConvBlock(128, 3, 3, 1, 1, norm="none", activation="hardtanh")
+        self.toRGB128 = ConvBlock(64, 3, 3, 1, 1, norm="none", activation="hardtanh")
         self.toRGBs = [self.toRGB16, self.toRGB32, self.toRGB64, self.toRGB128]
 
         nc_adain_params = self.get_num_adain_params(self.adain_generator)
