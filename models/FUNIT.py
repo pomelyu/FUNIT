@@ -264,7 +264,7 @@ class AdaInDecoder(nn.Module):
         if reminder > 0:
             shortcut = F.interpolate(shortcut, scale_factor=2)
             shortcutRGB = self.toRGBs[pg_index - 1](shortcut)
-            RGB = (1 - reminder) * shortcutRGB + RGB
+            RGB = (1 - reminder) * shortcutRGB + reminder * RGB
 
         return RGB
 
@@ -344,7 +344,7 @@ class FUNIT_Dis(nn.Module):
             x = self.convs[pg_index](x)
             shortcut = F.interpolate(shortcut, scale_factor=0.5)
             shortcut = self.fromRGBs[pg_index - 1](shortcut)
-            x = (1 - reminder) * shortcut + x
+            x = (1 - reminder) * shortcut + reminder * x
 
         if self.pg_index >= 3:
             x = self.conv128(x)
