@@ -46,14 +46,14 @@ class FUNITModel(BaseModel):
         self.real_B = input_data["target"].to(self.device)
 
         if self.pg_index <= 0:
-            self.real_A_pg = F.interpolate(self.real_A, scale_factor=0.125)
-            self.real_B_pg = F.interpolate(self.real_B, scale_factor=0.125)
+            self.real_A_pg = F.interpolate(self.real_A, scale_factor=0.125).detach()
+            self.real_B_pg = F.interpolate(self.real_B, scale_factor=0.125).detach()
         elif self.pg_index <= 1:
-            self.real_A_pg = F.interpolate(self.real_A, scale_factor=0.25)
-            self.real_B_pg = F.interpolate(self.real_B, scale_factor=0.25)
+            self.real_A_pg = F.interpolate(self.real_A, scale_factor=0.25).detach()
+            self.real_B_pg = F.interpolate(self.real_B, scale_factor=0.25).detach()
         elif self.pg_index <= 2:
-            self.real_A_pg = F.interpolate(self.real_A, scale_factor=0.5)
-            self.real_B_pg = F.interpolate(self.real_B, scale_factor=0.5)
+            self.real_A_pg = F.interpolate(self.real_A, scale_factor=0.5).detach()
+            self.real_B_pg = F.interpolate(self.real_B, scale_factor=0.5).detach()
         else:
             self.real_A_pg = self.real_A
             self.real_B_pg = self.real_B
