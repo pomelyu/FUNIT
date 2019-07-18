@@ -262,8 +262,8 @@ class AdaInDecoder(nn.Module):
 
         RGB = self.toRGBs[pg_index](x)
         if reminder > 0:
+            shortcut = F.interpolate(shortcut, scale_factor=2)
             shortcutRGB = self.toRGBs[pg_index - 1](shortcut)
-            shortcutRGB = F.interpolate(shortcutRGB, scale_factor=2)
             RGB = (1 - reminder) * shortcutRGB + RGB
 
         return RGB
