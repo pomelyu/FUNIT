@@ -25,7 +25,6 @@ class ImageDataset(Dataset):
         self.transform = iaa.Sequential([
             PadToSquare(),
             iaa.Resize({"height": self.image_size, "width": self.image_size}),
-            BGRtoRGB(),
             Normalize(mean=0, var=255),
             ValueClip(0, 1),
             ToTensor(),
