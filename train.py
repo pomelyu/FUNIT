@@ -73,7 +73,7 @@ def train(
 
         pg_index = pg_indexes[epoch - 1]
         model.set_pg_index(pg_index)
-        print("progressive index: {:.1f}".format(pg_index))
+        print("progressive index: {:.5f}".format(pg_index))
         for data in tqdm(train_dataloader, total=len(train_dataloader), ascii=True):
             model.set_input(data)
             model.forward()
