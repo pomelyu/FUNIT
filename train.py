@@ -2,9 +2,28 @@ from pathlib import Path
 import argparse
 import arrow
 import torch
-from tqdm import tqdm
 import numpy as np
 import gin
+
+import sys # pylint: disable-all
+try:
+    ipy_str = str(type(get_ipython()))
+    if 'zmqshell' in ipy_str:
+        from tqdm import tqdm_notebook as tqdm
+    if 'terminal' in ipy_str:
+        from tqdm import tqdm
+except:
+    if sys.stderr.isatty():
+        from tqdm import tqdm
+    else:
+        class Tqdm():
+            def __call__(self, iterable, **kwargs):
+                return iterable
+
+            def write(self, logs):
+                print(logs)
+
+        tqdm = Tqdm()
 
 import gin_pytorch  # pylint: disable=unused-import
 import models       # pylint: disable=unused-import
